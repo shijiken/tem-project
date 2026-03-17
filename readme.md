@@ -22,7 +22,7 @@ Requires **Python 3.10 or higher**.
 |---|---|
 | `pandas` | 1.5+ |
 | `numpy` | 1.23+ |
-| `scipy` | 1.9+ |
+| `pyxirr` | 0.10+ |
 
 Install Jupyter and all dependencies:
 ```bash
@@ -30,7 +30,9 @@ pip install notebook
 pip install -r requirements.txt
 ```
 
-> **Using Anaconda?** `pandas` and `numpy` are pre-installed. Run `pip install scipy` only.
+> **Using Anaconda?** `pandas` and `numpy` are often pre-installed. Run `pip install pyxirr` if needed.
+
+> This is a Python project. Use `pip`, not `npm`, to install dependencies.
 
 ---
 
@@ -77,6 +79,7 @@ Place all of the following files in the **same directory** as `analysis.ipynb`:
 | `ValueError: Merge produced 0 rows` | SEDOLs or date ranges in `sec_px` and `sec_metadata` don't overlap | Check that both files cover the same universe and date range |
 | `PM IRR: N/A` | XIRR solver found no root | Cash flows may be all-positive or all-negative — verify transaction data |
 | `KeyError: 'sedol'` | Column names not lowercased | Ensure CSV headers match expected schema (the loader lowercases automatically) |
+| `ModuleNotFoundError: No module named 'pyxirr'` | Package installed in a different Python environment than the active notebook kernel | In the active kernel, run `%pip install pyxirr`, then restart kernel and rerun cells from the top |
 
 ---
 
@@ -97,7 +100,7 @@ Securities failing either criterion are silently excluded.
 
 ### How Results Are Produced
 
-1. **Load & restrict** — prices are loaded from `sec_px.csv`, filtered to the analysis window (2023-12-29 → 2025-12-31), and ineligible securities are dropped.
+1. **Load & restrict** — prices are loaded from `sec_px.csv`, filtered to the analysis window (2023-12-29 → 2026-02-28), and ineligible securities are dropped.
 2. **Monthly returns** — `pct_change()` is applied column-wise; `NaN` periods are dropped per security.
 3. **TWR** — gross returns $(1 + r_t)$ are chained multiplicatively across all observed months.
 4. **Annualisation** — the total TWR is raised to the power $12/n$ where $n$ is the number of observed monthly returns.
@@ -151,16 +154,14 @@ A printed table of all sectors ranked by `cumulative_return` descending (formatt
 - Transaction prices are **not** provided in the file; they are looked up from `sec_px` at the transaction date (or the closest prior available date).
 - SEDOLs missing entirely from `sec_px` are skipped — their transactions contribute no cash flows.
 - Remaining holdings are valued at the last available price on or before `END_DATE` (2025-12-31) as a liquidation terminal value.
-- The XIRR solver searches for a root in the range $[-99.99\%, +10{,}000\%]$; if no root is found, IRR is reported as `N/A`.
+- XIRR is computed via `pyxirr.xirr`; if cash flows do not contain at least one positive and one negative value, IRR is reported as `N/A`.
 
 ### How Results Are Produced
 
 1. **Build cash flows** — for each transaction, look up the price on (or before) `txn_date`; cash flow = price × quantity, negative for buys.
 2. **Add terminal value** — compute net remaining quantity per SEDOL (buys − sells); look up end price and add a positive cash flow at `END_DATE`.
-3. **Time fractions** — each cash flow date is converted to years elapsed since the first cash flow date ($t = \text{days} / 365.25$).
-4. **XIRR** — solve for $r$ such that:
-$$\sum_{i} \frac{CF_i}{(1+r)^{t_i}} = 0$$
-using `scipy.optimize.brentq`.
+3. **Sign validation** — ensure there is at least one negative and one positive cash flow before solving.
+4. **XIRR** — compute annualised IRR directly from dated cash flows using `pyxirr.xirr(dates, cash_flows)`.
 5. **Output** — each PM's solved annualised IRR is printed (formatted as %).
 
 ### Output
